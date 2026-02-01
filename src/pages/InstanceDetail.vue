@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ArrowLeft, Play, Square, RotateCw, Trash2, Box, Terminal, AlertCircle, Plus, Edit2 } from 'lucide-vue-next';
 import StatusBadge from '../components/StatusBadge.vue';
@@ -22,6 +22,11 @@ const showDeleteNodeModal = ref(false);
 const nodeToDelete = ref<string | null>(null);
 const currentNode = ref<MCPNode | null>(null);
 const loading = ref(true);
+const showFullAccessAddress = ref(false);
+
+const toggleAccessAddress = () => {
+  showFullAccessAddress.value = !showFullAccessAddress.value;
+};
 
 const loadInstance = async () => {
   try {
@@ -89,6 +94,13 @@ const stopPolling = () => {
 const logs = ref<any[]>([]);
 const tools = ref<any[]>([]);
 const logLevelFilter = ref<string>('');
+const sortedLogs = computed(() => {
+  return [...logs.value].sort((a, b) => {
+    const at = new Date(a.timestamp).getTime();
+    const bt = new Date(b.timestamp).getTime();
+    return (isNaN(bt) ? 0 : bt) - (isNaN(at) ? 0 : at);
+  });
+});
 
 const loadLogs = async (level?: string) => {
   try {
@@ -128,6 +140,35 @@ onMounted(() => {
 onUnmounted(() => {
   stopPolling();
 });
+
+const parseHeartbeat = (value?: string) => {
+  if (!value || value === '-') return null;
+  const numeric = Number(value);
+  if (!Number.isNaN(numeric) && `${numeric}`.length >= 10) {
+    const numericDate = new Date(numeric);
+    if (!isNaN(numericDate.getTime())) return numericDate;
+  }
+  let normalized = value;
+  if (!normalized.includes('T') && normalized.includes(' ')) {
+    normalized = normalized.replace(' ', 'T');
+  }
+  const time = new Date(normalized);
+  if (isNaN(time.getTime())) return null;
+  return time;
+};
+
+const getHeartbeatTime = (value?: string) => {
+  const time = parseHeartbeat(value);
+  if (!time) return '';
+  return time.toLocaleString();
+};
+
+const formatHeartbeat = (value?: string) => {
+  if (!value || value === '-') return '-';
+  const time = parseHeartbeat(value);
+  if (!time) return value;
+  return time.toLocaleString();
+};
 
 const actionLoading = ref<Record<string, boolean>>({});
 
@@ -223,6 +264,45 @@ const handleEditNode = (node: MCPNode) => {
 const handleDeleteNode = (nodeId: string) => {
   nodeToDelete.value = nodeId;
   showDeleteNodeModal.value = true;
+};
+
+const buildNodeConfig = (node: MCPNode) => {
+  const serverName = (node as any).name || node.id;
+  const serverConfig: Record<string, any> = {};
+
+  if (node.type === 'sse') {
+    serverConfig.url = node.url || '';
+  } else {
+    serverConfig.command = node.command || '';
+    if (node.args && node.args.length > 0) {
+      serverConfig.args = node.args;
+    }
+  }
+
+  if (node.env && Object.keys(node.env).length > 0) {
+    serverConfig.env = node.env;
+  }
+
+  return { mcpServers: { [serverName]: serverConfig } };
+};
+
+const copyNodeConfig = async (node: MCPNode) => {
+  const text = JSON.stringify(buildNodeConfig(node), null, 2);
+  try {
+    await navigator.clipboard.writeText(text);
+    alert('已复制节点配置');
+  } catch (error) {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.setAttribute('readonly', '');
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(textarea);
+    alert(ok ? '已复制节点配置' : '复制失败');
+  }
 };
 
 const handleConfirmDeleteNode = async () => {
@@ -325,58 +405,106 @@ const handleSaveNode = async (data: any) => {
       
       <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div class="w-full md:w-auto">
-          <div class="flex items-center gap-3 mb-2 flex-wrap">
-            <h1 class="text-2xl font-bold text-gray-900 truncate max-w-[200px] md:max-w-md">{{ instance.name }}</h1>
-            <StatusBadge :status="instance.status" />
-            <button @click="handleEditInstance" class="text-gray-400 hover:text-blue-600 transition-colors">
-              <Edit2 class="w-4 h-4" />
-            </button>
+          <div class="flex items-center justify-between gap-2 mb-2 w-full">
+            <div class="flex items-center gap-3 min-w-0 flex-1">
+              <h1 class="text-2xl font-bold text-gray-900 truncate max-w-[200px] md:max-w-md">{{ instance.name }}</h1>
+              <StatusBadge :status="instance.status" />
+              <button @click="handleEditInstance" class="text-gray-400 hover:text-blue-600 transition-colors">
+                <Edit2 class="w-4 h-4" />
+              </button>
+            </div>
+            <div class="flex items-center gap-2 sm:hidden shrink-0">
+              <button 
+                v-if="instance.status === 'stopped'"
+                @click="handleAction('start')"
+                :disabled="actionLoading['start']"
+                class="flex items-center justify-center px-2 py-2 bg-green-50 text-green-700 rounded-md hover:bg-green-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <div v-if="actionLoading['start']" class="animate-spin rounded-full h-4 w-4 border-b-2 border-green-700"></div>
+                <Play v-else class="w-4 h-4" /> 
+              </button>
+              
+              <button 
+                v-if="instance.status === 'running'"
+                @click="handleAction('restart')"
+                :disabled="actionLoading['restart']"
+                class="flex items-center justify-center px-2 py-2 bg-blue-50 text-blue-700 rounded-md hover:bg-blue-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <div v-if="actionLoading['restart']" class="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-700"></div>
+                <RotateCw v-else class="w-4 h-4" /> 
+              </button>
+
+              <button 
+                v-if="instance.status === 'running'"
+                @click="handleAction('stop')"
+                :disabled="actionLoading['stop']"
+                class="flex items-center justify-center px-2 py-2 bg-yellow-50 text-yellow-700 rounded-md hover:bg-yellow-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <div v-if="actionLoading['stop']" class="animate-spin rounded-full h-4 w-4 border-b-2 border-yellow-700"></div>
+                <Square v-else class="w-4 h-4" /> 
+              </button>
+
+              <button 
+                @click="handleAction('delete')"
+                :disabled="actionLoading['delete']"
+                class="flex items-center justify-center px-2 py-2 bg-red-50 text-red-700 rounded-md hover:bg-red-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <div v-if="actionLoading['delete']" class="animate-spin rounded-full h-4 w-4 border-b-2 border-red-700"></div>
+                <Trash2 v-else class="w-4 h-4" /> 
+              </button>
+            </div>
           </div>
-          <p class="text-gray-500 font-mono text-sm truncate max-w-xs md:max-w-xl" :title="instance.accessAddress">{{ instance.accessAddress }}</p>
+          <p
+            :class="showFullAccessAddress ? 'text-gray-500 font-mono text-sm break-all md:max-w-xl cursor-pointer select-text' : 'text-gray-500 font-mono text-sm truncate md:max-w-xl cursor-pointer select-text'"
+            :title="instance.accessAddress"
+            @click="toggleAccessAddress"
+          >
+            {{ instance.accessAddress }}
+          </p>
         </div>
 
-        <div class="grid grid-cols-2 gap-2 sm:flex sm:items-center sm:gap-3 w-full md:w-auto">
+        <div class="hidden sm:flex items-center justify-end gap-2 w-full md:w-auto sm:justify-start sm:gap-3">
           <button 
             v-if="instance.status === 'stopped'"
             @click="handleAction('start')"
             :disabled="actionLoading['start']"
-            class="flex items-center justify-center px-3 py-2 bg-green-50 text-green-700 rounded-md hover:bg-green-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed w-full sm:w-auto"
+            class="flex items-center justify-center px-2 py-2 sm:px-3 sm:py-2 bg-green-50 text-green-700 rounded-md hover:bg-green-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <div v-if="actionLoading['start']" class="animate-spin rounded-full h-4 w-4 border-b-2 border-green-700 mr-2"></div>
-            <Play v-else class="w-4 h-4 mr-2" /> 
-            {{ actionLoading['start'] ? '启动中...' : '启动' }}
+            <div v-if="actionLoading['start']" class="animate-spin rounded-full h-4 w-4 border-b-2 border-green-700 sm:mr-2"></div>
+            <Play v-else class="w-4 h-4 sm:mr-2" /> 
+            <span class="hidden sm:inline">{{ actionLoading['start'] ? '启动中...' : '启动' }}</span>
           </button>
           
           <button 
             v-if="instance.status === 'running'"
             @click="handleAction('restart')"
             :disabled="actionLoading['restart']"
-            class="flex items-center justify-center px-3 py-2 bg-blue-50 text-blue-700 rounded-md hover:bg-blue-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed w-full sm:w-auto"
+            class="flex items-center justify-center px-2 py-2 sm:px-3 sm:py-2 bg-blue-50 text-blue-700 rounded-md hover:bg-blue-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <div v-if="actionLoading['restart']" class="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-700 mr-2"></div>
-            <RotateCw v-else class="w-4 h-4 mr-2" /> 
-            {{ actionLoading['restart'] ? '重启中...' : '重启' }}
+            <div v-if="actionLoading['restart']" class="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-700 sm:mr-2"></div>
+            <RotateCw v-else class="w-4 h-4 sm:mr-2" /> 
+            <span class="hidden sm:inline">{{ actionLoading['restart'] ? '重启中...' : '重启' }}</span>
           </button>
 
           <button 
             v-if="instance.status === 'running'"
             @click="handleAction('stop')"
             :disabled="actionLoading['stop']"
-            class="flex items-center justify-center px-3 py-2 bg-yellow-50 text-yellow-700 rounded-md hover:bg-yellow-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed w-full sm:w-auto"
+            class="flex items-center justify-center px-2 py-2 sm:px-3 sm:py-2 bg-yellow-50 text-yellow-700 rounded-md hover:bg-yellow-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <div v-if="actionLoading['stop']" class="animate-spin rounded-full h-4 w-4 border-b-2 border-yellow-700 mr-2"></div>
-            <Square v-else class="w-4 h-4 mr-2" /> 
-            {{ actionLoading['stop'] ? '停止中...' : '停止' }}
+            <div v-if="actionLoading['stop']" class="animate-spin rounded-full h-4 w-4 border-b-2 border-yellow-700 sm:mr-2"></div>
+            <Square v-else class="w-4 h-4 sm:mr-2" /> 
+            <span class="hidden sm:inline">{{ actionLoading['stop'] ? '停止中...' : '停止' }}</span>
           </button>
 
           <button 
             @click="handleAction('delete')"
             :disabled="actionLoading['delete']"
-            class="flex items-center justify-center px-3 py-2 bg-red-50 text-red-700 rounded-md hover:bg-red-100 transition-colors sm:ml-2 disabled:opacity-50 disabled:cursor-not-allowed w-full sm:w-auto"
+            class="flex items-center justify-center px-2 py-2 sm:px-3 sm:py-2 bg-red-50 text-red-700 rounded-md hover:bg-red-100 transition-colors sm:ml-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <div v-if="actionLoading['delete']" class="animate-spin rounded-full h-4 w-4 border-b-2 border-red-700 mr-2"></div>
-            <Trash2 v-else class="w-4 h-4 mr-2" /> 
-            {{ actionLoading['delete'] ? '删除中...' : '删除' }}
+            <div v-if="actionLoading['delete']" class="animate-spin rounded-full h-4 w-4 border-b-2 border-red-700 sm:mr-2"></div>
+            <Trash2 v-else class="w-4 h-4 sm:mr-2" /> 
+            <span class="hidden sm:inline">{{ actionLoading['delete'] ? '删除中...' : '删除' }}</span>
           </button>
         </div>
       </div>
@@ -447,9 +575,12 @@ const handleSaveNode = async (data: any) => {
                 <td class="px-6 py-4 whitespace-nowrap">
                   <StatusBadge :status="node.status" type="node" />
                 </td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ node.lastHeartbeat }}</td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500" :title="getHeartbeatTime(node.lastHeartbeat) || node.lastHeartbeat || '-'">
+                  {{ formatHeartbeat(node.lastHeartbeat) }}
+                </td>
                 <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                   <button @click="handleEditNode(node)" class="text-blue-600 hover:text-blue-900 mr-4">编辑</button>
+                  <button @click="copyNodeConfig(node)" class="text-gray-600 hover:text-gray-900 mr-4">复制</button>
                   <button @click="handleDeleteNode(node.id)" class="text-red-600 hover:text-red-900">删除</button>
                 </td>
               </tr>
@@ -480,6 +611,7 @@ const handleSaveNode = async (data: any) => {
                </div>
                <div class="flex space-x-3">
                   <button @click="handleEditNode(node)" class="text-blue-600 hover:text-blue-900 text-sm">编辑</button>
+                  <button @click="copyNodeConfig(node)" class="text-gray-600 hover:text-gray-900 text-sm">复制</button>
                   <button @click="handleDeleteNode(node.id)" class="text-red-600 hover:text-red-900 text-sm">删除</button>
                </div>
             </div>
@@ -488,8 +620,8 @@ const handleSaveNode = async (data: any) => {
                <div class="truncate" :title="node.type === 'sse' ? node.url : node.command">
                   <span class="font-medium text-gray-700">命令/URL:</span> {{ node.type === 'sse' ? node.url : node.command }}
                </div>
-               <div>
-                  <span class="font-medium text-gray-700">最后心跳:</span> {{ node.lastHeartbeat }}
+               <div :title="getHeartbeatTime(node.lastHeartbeat) || node.lastHeartbeat || '-'">
+                  <span class="font-medium text-gray-700">最后心跳:</span> {{ formatHeartbeat(node.lastHeartbeat) }}
                </div>
             </div>
           </div>
@@ -520,7 +652,7 @@ const handleSaveNode = async (data: any) => {
         </div>
         <div class="bg-gray-900 rounded-lg p-4 font-mono text-sm text-gray-300 h-96 overflow-y-auto">
         <div v-if="logs.length === 0" class="text-center text-gray-500 py-12">暂无日志</div>
-        <div v-for="(log, i) in logs" :key="i" class="mb-1">
+        <div v-for="(log, i) in sortedLogs" :key="i" class="mb-1">
           <span class="text-gray-500">[{{ new Date(log.timestamp).toLocaleTimeString() }}]</span>
           <span :class="{
             'text-green-400': log.level === 'INFO',
@@ -536,7 +668,7 @@ const handleSaveNode = async (data: any) => {
 
       <!-- Config Tab -->
       <div v-else-if="activeTab === 'config'" class="bg-gray-50 rounded-lg p-6">
-        <pre class="whitespace-pre-wrap font-mono text-sm text-gray-700">{{ JSON.stringify(instance, null, 2) }}</pre>
+        <pre class="whitespace-pre-wrap break-all max-w-full overflow-x-auto font-mono text-sm text-gray-700">{{ JSON.stringify(instance, null, 2) }}</pre>
       </div>
 
       <!-- Tools Tab -->

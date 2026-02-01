@@ -6,12 +6,91 @@ import { randomUUID } from 'crypto';
 
 const router = Router();
 
+const buildNodesSnapshot = async (instance: any) => {
+  const server = instanceManager.getServer(instance.id);
+  if (!server || instance.status !== 'running') {
+    return (instance.nodes || []).map((node: any) => ({
+      id: node.id || randomUUID(),
+      name: (node as any).name,
+      type: node.type,
+      url: node.url,
+      command: node.command,
+      status: 'disconnected',
+      toolsCount: 0,
+      resourcesCount: 0,
+      promptsCount: 0,
+      lastHeartbeat: '-'
+    }));
+  }
+
+  try {
+    const composer = server.getActiveComposer();
+    const clientList = composer.listTargetClients();
+    const clientStatusMap = new Map<string, any>();
+    for (const client of clientList) {
+      clientStatusMap.set(client.name, client);
+    }
+
+    return await Promise.all((instance.nodes || []).map(async (node: any) => {
+      const nodeName = instanceManager.deriveNameFromNode(node);
+      const clientStatus = clientStatusMap.get(nodeName);
+
+      if (clientStatus) {
+        return {
+          id: node.id,
+          name: (node as any).name,
+          type: node.type,
+          url: node.url,
+          command: node.command,
+          args: node.args,
+          env: node.env,
+          status: clientStatus.status,
+          toolsCount: clientStatus.toolsCount || 0,
+          resourcesCount: 0,
+          promptsCount: 0,
+          lastHeartbeat: new Date().toISOString()
+        };
+      }
+
+      return {
+        id: node.id,
+        name: (node as any).name,
+        type: node.type,
+        url: node.url,
+        command: node.command,
+        args: node.args,
+        env: node.env,
+        status: 'connecting',
+        toolsCount: 0,
+        resourcesCount: 0,
+        promptsCount: 0,
+        lastHeartbeat: '-'
+      };
+    }));
+  } catch (error) {
+    return (instance.nodes || []).map((node: any) => ({
+      id: node.id || randomUUID(),
+      name: (node as any).name,
+      type: node.type,
+      url: node.url,
+      command: node.command,
+      status: 'disconnected',
+      toolsCount: 0,
+      resourcesCount: 0,
+      promptsCount: 0,
+      lastHeartbeat: '-'
+    }));
+  }
+};
+
 // Get all instances
 router.get('/', async (req, res) => {
   const instances = await instanceStore.getAll();
-  // TODO: 这里可以合并实时状态（如 running/stopped），目前先返回配置状态
-  // 实际上 instanceManager.startInstance 更新了 store，所以状态应该是准的
-  res.json(instances);
+  const enriched = await Promise.all(instances.map(async instance => ({
+    ...instance,
+    nodes: await buildNodesSnapshot(instance)
+  })));
+  res.json(enriched);
 });
 
 // Get instance nodes status

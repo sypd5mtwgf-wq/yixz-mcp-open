@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
 import { fileURLToPath } from 'url';
 import { instanceManager } from './services/instanceManager';
 import instancesRouter from './routes/instances';
@@ -21,6 +22,20 @@ app.use(express.json());
 // Routes
 app.use('/api/instances', instancesRouter);
 app.use('/api/mcp', mcpRouter);
+
+app.get('/api/network-ip', (req, res) => {
+  const interfaces = os.networkInterfaces();
+  for (const name of Object.keys(interfaces)) {
+    const entries = interfaces[name] || [];
+    for (const entry of entries) {
+      if (entry && entry.family === 'IPv4' && !entry.internal) {
+        res.json({ ip: entry.address });
+        return;
+      }
+    }
+  }
+  res.json({ ip: null });
+});
 
 // Serve static files from frontend dist directory
 const distPath = path.join(__dirname, '../dist');

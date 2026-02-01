@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { Server, Activity, Network } from 'lucide-vue-next';
 import type { Instance } from '../types';
@@ -16,6 +16,12 @@ const nodeStatusSummary = computed(() => {
   const connected = props.instance.nodes.filter(n => n.status === 'connected').length;
   return `${connected}/${total} 正常`;
 });
+
+const showFullAccessAddress = ref(false);
+
+const toggleAccessAddress = () => {
+  showFullAccessAddress.value = !showFullAccessAddress.value;
+};
 
 const goToDetail = () => {
   router.push(`/instance/${props.instance.id}`);
@@ -34,7 +40,13 @@ const goToDetail = () => {
         </div>
         <div>
           <h3 class="text-lg font-semibold text-gray-900">{{ instance.name }}</h3>
-          <p class="text-sm text-gray-500 font-mono mt-0.5 truncate max-w-[200px]" :title="instance.accessAddress">{{ instance.accessAddress }}</p>
+          <p
+            :class="showFullAccessAddress ? 'text-sm text-gray-500 font-mono mt-0.5 break-all cursor-pointer select-text' : 'text-sm text-gray-500 font-mono mt-0.5 truncate max-w-[200px] cursor-pointer select-text'"
+            :title="instance.accessAddress"
+            @click.stop="toggleAccessAddress"
+          >
+            {{ instance.accessAddress }}
+          </p>
         </div>
       </div>
       <StatusBadge :status="instance.status" />
