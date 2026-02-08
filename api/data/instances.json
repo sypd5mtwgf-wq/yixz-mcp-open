@@ -1,1 +1,26 @@
-[]
+[
+  {
+    "name": "小智",
+    "accessAddress": "wss://api.xiaozhi.me/mcp/?token=eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOjcxMjgxMywiYWdlbnRJZCI6MTQyMTA0NiwiZW5kcG9pbnRJZCI6ImFnZW50XzE0MjEwNDYiLCJwdXJwb3NlIjoibWNwLWVuZHBvaW50IiwiaWF0IjoxNzcwMjE4NTIxLCJleHAiOjE4MDE3NzYxMjF9.dLZcx-C13DktyDJuZm8z6_n06m3Duhl93ERv_upeyl3HreIIpg6M90oIN1GiKenkNe5XKouAC79gcttoWdyvAA",
+    "nodes": [
+      {
+        "id": "1770219468348",
+        "name": "music",
+        "type": "sse",
+        "url": "http://localhost:8088/sse",
+        "command": "",
+        "args": [],
+        "env": {},
+        "status": "connected",
+        "toolsCount": 6,
+        "resourcesCount": 0,
+        "promptsCount": 0,
+        "lastHeartbeat": "2026-02-06T16:32:13.871Z"
+      }
+    ],
+    "status": "stopped",
+    "id": "631a3e77-b044-4b97-b1cf-d61efc380561",
+    "createdAt": 1770218525788,
+    "updatedAt": 1770397282241
+  }
+]

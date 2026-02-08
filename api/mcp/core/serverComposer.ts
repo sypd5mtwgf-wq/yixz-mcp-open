@@ -28,7 +28,10 @@ import fs from 'fs'
 
 const NAMESPACE_SEPARATOR = '.'
 const TIMEOUT = 60000 * 120
-const DEFAULT_REQUEST_TIMEOUT_MSEC = 60000 * 3 // Increase timeout to 3 minutes
+const DEFAULT_REQUEST_TIMEOUT_MSEC = Math.max(
+  60000,
+  Number(process.env.MCP_STDIO_CONNECT_TIMEOUT_MS) || 60000 * 3
+)
 
 type ConnectionConfig =
   | {
@@ -587,8 +590,17 @@ export class McpServerComposer {
   }
 
   private resolveCommandPath(command: string): string {
-    // Simple resolution - just return the command
-    // In a more complex implementation, this could search PATH
+    try {
+      const cmd = process.platform === 'win32' ? 'where' : 'which';
+      const output = execSync(`${cmd} ${command}`, { encoding: 'utf-8', stdio: 'pipe' });
+      const lines = output.split(/\r?\n/);
+      // Windows 'where' might return multiple paths, take the first one
+      if (lines.length > 0 && lines[0].trim()) {
+        return lines[0].trim();
+      }
+    } catch (e) {
+      // Command not found or error executing where/which
+    }
     return command;
   }
 
@@ -625,6 +637,16 @@ export class McpServerComposer {
       
       console.log(`[DEBUG] createTransport initial command: ${command}, platform: ${process.platform}`);
 
+      if (command === 'uvx') {
+         const uvxResolved = this.resolveCommandPath('uvx');
+         if (uvxResolved === 'uvx') {
+           command = 'uv';
+           args = ['x', ...args];
+         } else {
+           command = uvxResolved;
+         }
+      }
+
       if (process.platform === 'win32' && (command === 'npm' || command === 'npx')) {
          const cliPath = this.resolveNpxCliPath(command);
          if (cliPath) {
@@ -654,11 +676,34 @@ export class McpServerComposer {
       );
       console.log(`[DEBUG] Final transport command: ${command}, args: ${JSON.stringify(args)}`);
 
-      return new StdioClientTransport({
+      const transport = new StdioClientTransport({
         ...config.params,
         command,
         args
       });
+
+      const proc = (transport as any).process;
+      if (proc?.stderr?.on) {
+        proc.stderr.on('data', (data: any) => {
+          formatLog(
+            LogLevel.ERROR,
+            `Stdio stderr (${command}): ${String(data).trimEnd()}`,
+            LogCategory.CONNECTION
+          );
+        });
+      }
+
+      if (proc?.on) {
+        proc.on('exit', (code: number | null, signal: string | null) => {
+          formatLog(
+            LogLevel.ERROR,
+            `Stdio process exited (${command}). code=${code ?? 'null'}, signal=${signal ?? 'null'}`,
+            LogCategory.CONNECTION
+          );
+        });
+      }
+
+      return transport;
     }
   }
 

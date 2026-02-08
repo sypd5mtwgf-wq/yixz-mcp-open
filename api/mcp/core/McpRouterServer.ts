@@ -212,15 +212,22 @@ export class McpRouterServer {
     const targetServers: McpServerType[] = []
     for (const serverName in mcpServers) {
       const serverConfig = mcpServers[serverName]
+      
+      let params = serverConfig.url ? {} : { ...serverConfig }
+      
+      // Support 'uvx' shorthand configuration
+      if (!serverConfig.url && serverConfig.uvx) {
+        params.command = 'uvx'
+        const extraArgs = Array.isArray(serverConfig.args) ? serverConfig.args : []
+        params.args = [serverConfig.uvx, ...extraArgs]
+        delete params.uvx
+      }
+
       const targetServer: McpServerType = {
         name: serverName,
         type: serverConfig.url ? 'sse' : 'stdio',
         url: serverConfig.url,
-        params: serverConfig.url
-          ? {}
-          : {
-            ...serverConfig
-          }
+        params
       }
       targetServers.push(targetServer)
     }

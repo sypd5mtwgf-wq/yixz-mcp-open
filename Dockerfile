@@ -11,7 +11,13 @@ WORKDIR /app
 ENV NODE_ENV=production \
     PORT=3001 \
     HOST=0.0.0.0 \
-    npm_config_registry=https://registry.npmmirror.com
+    npm_config_registry=https://registry.npmmirror.com \
+    UV_CACHE_DIR=/app/.cache/uv \
+    PATH=/root/.local/bin:$PATH
+
+RUN apt-get update && apt-get install -y curl ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+RUN mkdir -p /app/.cache/uv
 
 # 复制 package.json 和锁文件
 COPY package*.json pnpm-lock.yaml* ./

@@ -100,6 +100,42 @@ Write-Host ""
 Write-Host "[INFO] Starting service..." -ForegroundColor Cyan
 Write-Host ""
 
+# Ensure uv / uvx availability on Windows
+try {
+    $uvCmd = Get-Command uv -ErrorAction SilentlyContinue
+    if (-not $uvCmd) {
+        Write-Host "[INFO] uv not found. Installing uv..." -ForegroundColor Yellow
+        try {
+            iwr https://astral.sh/uv/install.ps1 -UseBasicParsing | iex
+            Write-Host "[INFO] uv installed successfully" -ForegroundColor Green
+        } catch {
+            Write-Host "[WARN] Failed to install uv automatically. You can install manually from https://astral.sh/uv/" -ForegroundColor Yellow
+        }
+    }
+
+    $uvDir = Join-Path $env:LOCALAPPDATA "Programs\uv"
+    if (Test-Path $uvDir) {
+        if (-not ($env:PATH -like "*$uvDir*")) {
+            $env:PATH = "$uvDir;$env:PATH"
+            Write-Host "[INFO] Added uv to PATH: $uvDir" -ForegroundColor Cyan
+        }
+    }
+
+    if (-not $env:UV_CACHE_DIR) {
+        $env:UV_CACHE_DIR = Join-Path $env:LOCALAPPDATA "uv\cache"
+        New-Item -ItemType Directory -Force -Path $env:UV_CACHE_DIR | Out-Null
+        Write-Host "[INFO] Set UV_CACHE_DIR=$env:UV_CACHE_DIR" -ForegroundColor Cyan
+    }
+
+    $uvxCmd = Get-Command uvx -ErrorAction SilentlyContinue
+    if (-not $uvxCmd -and (Get-Command uv -ErrorAction SilentlyContinue)) {
+        function uvx { param([Parameter(ValueFromRemainingArguments = $true)][object[]]$args) uv x @args }
+        Write-Host "[INFO] Defined uvx shim (uv x ...)" -ForegroundColor Cyan
+    }
+} catch {
+    Write-Host "[WARN] uv/uvx setup skipped due to error: $($_.Exception.Message)" -ForegroundColor Yellow
+}
+
 # Wait a bit then open browser
 Start-Sleep -Seconds 3
 try {

@@ -10,6 +10,26 @@ echo    %PROJECT_NAME% - Windows Startup
 echo ==========================================
 echo.
 
+if exist "bin\uv.exe" (
+    set "PATH=%CD%\bin;%PATH%"
+)
+if not defined UV_CACHE_DIR (
+    set "UV_CACHE_DIR=%LOCALAPPDATA%\uv\cache"
+)
+if not exist "%UV_CACHE_DIR%" (
+    mkdir "%UV_CACHE_DIR%" >nul 2>&1
+)
+where uv >nul 2>&1
+if %errorlevel% neq 0 (
+    echo [INFO] uv not found. Installing uv...
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "iwr https://astral.sh/uv/install.ps1 -UseBasicParsing | iex"
+)
+for %%p in ("%LOCALAPPDATA%\Programs\uv" "%USERPROFILE%\.local\bin") do (
+    if exist "%%~p\uv.exe" (
+        set "PATH=%%~p;%PATH%"
+    )
+)
+
 REM Check Method 1: Direct node execution (most reliable)
 node -v >nul 2>&1
 if %errorlevel% equ 0 goto NODE_FOUND

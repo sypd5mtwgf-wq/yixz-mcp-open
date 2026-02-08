@@ -104,6 +104,7 @@ export class WebSocketServer {
           // 创建WebSocket传输层
           const transport = new WebSocketServerTransport(ws)
           this.currentTransport = transport
+          await transport.start()
 
           // 设置消息处理
           ws.on('message', (data: WebSocket.Data) => {

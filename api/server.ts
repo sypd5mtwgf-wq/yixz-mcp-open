@@ -1,7 +1,10 @@
 /**
  * local server entry file, for local development
  */
+import dotenv from 'dotenv';
 import app from './app.js';
+
+dotenv.config();
 
 /**
  * start server with port

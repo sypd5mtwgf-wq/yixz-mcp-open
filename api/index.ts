@@ -4,6 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import os from 'os';
 import { fileURLToPath } from 'url';
+import dotenv from 'dotenv';
 import { instanceManager } from './services/instanceManager';
 import instancesRouter from './routes/instances';
 import mcpRouter from './routes/mcp';
@@ -11,6 +12,7 @@ import { formatLog, LogLevel } from './mcp/utils/console';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -64,14 +66,69 @@ async function start() {
     await instanceManager.initialize();
     formatLog(LogLevel.INFO, 'Instance Manager initialized');
 
-    app.listen(PORT, () => {
+    const server = app.listen(PORT, () => {
       formatLog(LogLevel.INFO, `Server running on port ${PORT}`);
       formatLog(LogLevel.INFO, `API available at http://localhost:${PORT}/api`);
     });
+
+    // Handle server errors
+    server.on('error', (error: NodeJS.ErrnoException) => {
+      if (error.syscall !== 'listen') {
+        throw error;
+      }
+
+      const bind = typeof PORT === 'string' ? 'Pipe ' + PORT : 'Port ' + PORT;
+
+      switch (error.code) {
+        case 'EACCES':
+          formatLog(LogLevel.ERROR, `${bind} requires elevated privileges`);
+          process.exit(1);
+          break;
+        case 'EADDRINUSE':
+          formatLog(LogLevel.ERROR, `${bind} is already in use`);
+          process.exit(1);
+          break;
+        default:
+          throw error;
+      }
+    });
+
+    // Graceful shutdown handlers
+    const shutdown = (signal: string) => {
+      formatLog(LogLevel.INFO, `${signal} signal received: closing HTTP server`);
+      server.close(() => {
+        formatLog(LogLevel.INFO, 'HTTP server closed');
+        process.exit(0);
+      });
+
+      // Force shutdown after 10 seconds
+      setTimeout(() => {
+        formatLog(LogLevel.ERROR, 'Forced shutdown after timeout');
+        process.exit(1);
+      }, 10000);
+    };
+
+    process.on('SIGTERM', () => shutdown('SIGTERM'));
+    process.on('SIGINT', () => shutdown('SIGINT'));
+
   } catch (error) {
     console.error('Failed to start server:', error);
     process.exit(1);
   }
 }
+
+// Handle uncaught exceptions - prevent process from crashing
+process.on('uncaughtException', (error: Error) => {
+  console.error('Uncaught Exception:', error);
+  // Log the error stack for debugging
+  console.error(error.stack);
+  // Don't exit - let the service try to recover
+});
+
+// Handle unhandled promise rejections
+process.on('unhandledRejection', (reason: unknown) => {
+  console.error('Unhandled Rejection:', reason);
+  // Don't exit - let the service try to recover
+});
 
 start();

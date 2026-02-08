@@ -346,7 +346,21 @@ const handleSaveNode = async (data: any) => {
       while ((match = regex.exec(str)) !== null) {
         args.push(match[1] ? match[1] : match[0]);
       }
-      return args;
+      const cleaned = args
+        .map(arg => arg.trim().replace(/`/g, ''))
+        .filter(arg => arg.length > 0);
+      const merged: string[] = [];
+      for (let i = 0; i < cleaned.length; i += 1) {
+        const current = cleaned[i];
+        const next = cleaned[i + 1];
+        if (current === 'git+' && next && /^https?:\/\//.test(next)) {
+          merged.push(`git+${next}`);
+          i += 1;
+          continue;
+        }
+        merged.push(current);
+      }
+      return merged;
     };
 
     const args = data.args ? parseArgs(data.args) : [];

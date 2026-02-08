@@ -1,10 +1,18 @@
 import WebSocket from 'ws';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 
+type WebSocketHeartbeatOptions = {
+  pingIntervalMs?: number
+  pongTimeoutMs?: number
+}
+
 export class WebSocketClientTransport implements Transport {
   private ws: WebSocket;
   private pendingInbound: any[] = [];
   private _onmessage: ((message: any) => void) | null = null;
+  private heartbeatInterval: NodeJS.Timeout | null = null;
+  private lastActivityAt = 0;
+  private heartbeatOptions: { pingIntervalMs: number; pongTimeoutMs: number };
   get onmessage() {
     return this._onmessage
   }
@@ -25,10 +33,17 @@ export class WebSocketClientTransport implements Transport {
   public onclose: (() => void) | null = null;
   public onerror: ((error: Error) => void) | null = null;
 
-  constructor(ws: WebSocket) {
+  constructor(ws: WebSocket, options?: WebSocketHeartbeatOptions) {
     this.ws = ws;
+    const pingIntervalMs = Math.max(1000, Number(process.env.WS_PING_INTERVAL_MS) || 25000);
+    const pongTimeoutMs = Math.max(2000, Number(process.env.WS_PONG_TIMEOUT_MS) || 60000);
+    this.heartbeatOptions = {
+      pingIntervalMs: options?.pingIntervalMs ?? pingIntervalMs,
+      pongTimeoutMs: options?.pongTimeoutMs ?? pongTimeoutMs
+    };
     
     this.ws.on('message', (data) => {
+      this.lastActivityAt = Date.now();
       const messageStr = typeof data === 'string' ? data : data.toString('utf-8');
       console.log('[WebSocketClientTransport] <<', messageStr.slice(0, 200));
 
@@ -53,6 +68,7 @@ export class WebSocketClientTransport implements Transport {
 
     this.ws.on('close', (code, reason) => {
       console.log(`[WebSocketClientTransport] Connection closed. Code: ${code}, Reason: ${reason ? reason.toString() : 'No reason'}`);
+      this.stopHeartbeat();
       if (this.onclose) {
         this.onclose();
       }
@@ -63,6 +79,10 @@ export class WebSocketClientTransport implements Transport {
       if (this.onerror) {
         this.onerror(error);
       }
+    });
+
+    this.ws.on('pong', () => {
+      this.lastActivityAt = Date.now();
     });
   }
 
@@ -82,6 +102,7 @@ export class WebSocketClientTransport implements Transport {
         this.ws.once('error', onError);
       });
     }
+    this.startHeartbeat();
   }
 
   async send(message: any): Promise<void> {
@@ -100,8 +121,34 @@ export class WebSocketClientTransport implements Transport {
   }
 
   async close(): Promise<void> {
+    this.stopHeartbeat();
     if (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING) {
       this.ws.close();
+    }
+  }
+
+  private startHeartbeat() {
+    if (this.heartbeatInterval) return;
+    this.lastActivityAt = Date.now();
+    this.heartbeatInterval = setInterval(() => {
+      if (this.ws.readyState !== WebSocket.OPEN) return;
+      const now = Date.now();
+      if (now - this.lastActivityAt > this.heartbeatOptions.pongTimeoutMs) {
+        this.ws.terminate();
+        return;
+      }
+      try {
+        this.ws.ping();
+      } catch (error) {
+        if (this.onerror) this.onerror(error as Error);
+      }
+    }, this.heartbeatOptions.pingIntervalMs);
+  }
+
+  private stopHeartbeat() {
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = null;
     }
   }
 }
